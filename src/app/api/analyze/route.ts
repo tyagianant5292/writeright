@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { analyzeText } from "@/lib/gemini";
+import { analyzeText, GeminiError } from "@/lib/gemini";
 import { getSession } from "@/lib/auth";
 import { sql, ensureSchema, dbEnabled } from "@/lib/db";
-import { getFreeCount, makeFreeToken, freeCookieOptions, FREE_COOKIE, FREE_LIMIT } from "@/lib/freelimit";
+import { getFreeCount, makeFreeToken, freeCookieOptions, FREE_COOKIE, FREE_LIMIT, resetInfo } from "@/lib/freelimit";
 
 export const maxDuration = 60;
 
@@ -28,10 +28,12 @@ export async function POST(req: Request) {
   if (!session) {
     freeUsed = await getFreeCount();
     if (freeUsed >= FREE_LIMIT) {
+      const { hours } = resetInfo();
       return NextResponse.json(
         {
-          error: `You've used your ${FREE_LIMIT} free checks for today. Sign in (free) for unlimited checks and progress tracking.`,
+          error: `You've used all ${FREE_LIMIT} free checks for today. They reset in about ${hours} hour${hours === 1 ? "" : "s"} (midnight UTC). Sign in — it's free — for unlimited checks and progress tracking.`,
           needLogin: true,
+          resetHours: hours,
         },
         { status: 429 },
       );
@@ -61,6 +63,12 @@ export async function POST(req: Request) {
     return res;
   } catch (err) {
     console.error("[analyze] failed:", err);
+    if (err instanceof GeminiError && err.rateLimited) {
+      return NextResponse.json(
+        { error: "The AI is at its free-tier rate limit right now. Please wait about a minute and try again." },
+        { status: 503 },
+      );
+    }
     return NextResponse.json(
       { error: "Could not analyze right now. Please try again in a moment." },
       { status: 502 },

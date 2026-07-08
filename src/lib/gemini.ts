@@ -114,37 +114,61 @@ Rules:
 - improved: a corrected, natural version of the WHOLE text, keeping the user's meaning and tone.
 If the text is already perfect, return empty mistakes and high scores. Never invent errors that aren't there.`;
 
-export async function analyzeText(text: string): Promise<Analysis> {
-  if (!API_KEY) throw new Error("GEMINI_API_KEY is not set");
+export class GeminiError extends Error {
+  status: number;
+  rateLimited: boolean;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+    this.rateLimited = status === 429 || status === 503 || status === 500;
+  }
+}
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Gemini generateContent call with retry on transient (429/503/500) errors. */
+async function callGemini(body: object): Promise<string> {
+  if (!API_KEY) throw new GeminiError("GEMINI_API_KEY is not set", 500);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+  const maxAttempts = 3;
+  let lastDetail = "";
+  let lastStatus = 500;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "x-goog-api-key": API_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM }] },
-      contents: [{ parts: [{ text: `Analyze this text:\n\n"""${text}"""` }] }],
-      generationConfig: {
-        temperature: 0.3,
-        responseMimeType: "application/json",
-        responseSchema,
-      },
-    }),
-  });
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "x-goog-api-key": API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`Gemini error ${res.status}: ${detail.slice(0, 300)}`);
+    if (res.ok) {
+      const data = await res.json();
+      const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!raw) throw new GeminiError("Empty response from Gemini", 502);
+      return raw;
+    }
+
+    lastStatus = res.status;
+    lastDetail = await res.text().catch(() => "");
+    // Sirf server errors (503/500) pe retry. 429 = quota exceeded — retry se
+    // quota aur jaldi khatam hoga, isliye turant fail karo (clear message ke saath).
+    const transient = res.status === 503 || res.status === 500;
+    if (transient && attempt < maxAttempts) {
+      await sleep(attempt * 900); // 0.9s, 1.8s backoff
+      continue;
+    }
+    break;
   }
 
-  const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!raw) throw new Error("Empty response from Gemini");
+  throw new GeminiError(`Gemini error ${lastStatus}: ${lastDetail.slice(0, 200)}`, lastStatus);
+}
 
+export async function analyzeText(text: string): Promise<Analysis> {
+  const raw = await callGemini({
+    systemInstruction: { parts: [{ text: SYSTEM }] },
+    contents: [{ parts: [{ text: `Analyze this text:\n\n"""${text}"""` }] }],
+    generationConfig: { temperature: 0.3, responseMimeType: "application/json", responseSchema },
+  });
   return JSON.parse(raw) as Analysis;
 }
 
@@ -193,32 +217,17 @@ Listen to the audio of the user speaking English and return JSON:
 Be encouraging and honest. If audio is unclear or empty, say so in feedback and give low scores.`;
 
 export async function analyzeSpeech(base64Audio: string, mimeType: string): Promise<SpeechResult> {
-  if (!API_KEY) throw new Error("GEMINI_API_KEY is not set");
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "x-goog-api-key": API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SPEECH_SYSTEM }] },
-      contents: [
-        {
-          parts: [
-            { text: "Evaluate this spoken English audio." },
-            { inline_data: { mime_type: mimeType, data: base64Audio } },
-          ],
-        },
-      ],
-      generationConfig: { temperature: 0.3, responseMimeType: "application/json", responseSchema: speechSchema },
-    }),
+  const raw = await callGemini({
+    systemInstruction: { parts: [{ text: SPEECH_SYSTEM }] },
+    contents: [
+      {
+        parts: [
+          { text: "Evaluate this spoken English audio." },
+          { inline_data: { mime_type: mimeType, data: base64Audio } },
+        ],
+      },
+    ],
+    generationConfig: { temperature: 0.3, responseMimeType: "application/json", responseSchema: speechSchema },
   });
-
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`Gemini audio error ${res.status}: ${detail.slice(0, 300)}`);
-  }
-  const data = await res.json();
-  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!rawText) throw new Error("Empty response from Gemini");
-  return JSON.parse(rawText) as SpeechResult;
+  return JSON.parse(raw) as SpeechResult;
 }

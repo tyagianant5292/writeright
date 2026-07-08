@@ -14,6 +14,16 @@ function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Free checks midnight UTC pe reset hote hain. Kitne ghante bache. */
+export function resetInfo(): { hours: number; resetAt: string } {
+  const now = new Date();
+  const next = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0),
+  );
+  const hours = Math.max(1, Math.ceil((next.getTime() - now.getTime()) / 3_600_000));
+  return { hours, resetAt: next.toISOString() };
+}
+
 /** Aaj tak kitne free checks use hue (anonymous). */
 export async function getFreeCount(): Promise<number> {
   const token = (await cookies()).get(FREE_COOKIE)?.value;
