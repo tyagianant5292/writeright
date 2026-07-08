@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { analyzeSpeech } from "@/lib/gemini";
+import { getSession } from "@/lib/auth";
+import { getFreeCount, makeFreeToken, freeCookieOptions, FREE_COOKIE, FREE_LIMIT } from "@/lib/freelimit";
 
 export const maxDuration = 60;
 
@@ -27,9 +29,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Unsupported audio format (${mimeType}).` }, { status: 400 });
   }
 
+  // Anonymous users: same daily free pool as text checks.
+  const session = await getSession();
+  let freeUsed = 0;
+  if (!session) {
+    freeUsed = await getFreeCount();
+    if (freeUsed >= FREE_LIMIT) {
+      return NextResponse.json(
+        {
+          error: `You've used your ${FREE_LIMIT} free checks for today. Sign in (free) for unlimited practice.`,
+          needLogin: true,
+        },
+        { status: 429 },
+      );
+    }
+  }
+
   try {
     const result = await analyzeSpeech(audio, mimeType);
-    return NextResponse.json({ result });
+    const res = NextResponse.json({ result });
+    if (!session) {
+      res.cookies.set(FREE_COOKIE, await makeFreeToken(freeUsed + 1), freeCookieOptions);
+    }
+    return res;
   } catch (err) {
     console.error("[speak] failed:", err);
     return NextResponse.json({ error: "Could not analyze your speech. Please try again." }, { status: 502 });

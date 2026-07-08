@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { analyzeText } from "@/lib/gemini";
 import { getSession } from "@/lib/auth";
 import { sql, ensureSchema, dbEnabled } from "@/lib/db";
+import { getFreeCount, makeFreeToken, freeCookieOptions, FREE_COOKIE, FREE_LIMIT } from "@/lib/freelimit";
 
 export const maxDuration = 60;
 
@@ -21,12 +22,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "That's a bit long — please keep it under 4000 characters." }, { status: 400 });
   }
 
+  // Anonymous users: roz FREE_LIMIT free checks. Logged-in = unlimited.
+  const session = await getSession();
+  let freeUsed = 0;
+  if (!session) {
+    freeUsed = await getFreeCount();
+    if (freeUsed >= FREE_LIMIT) {
+      return NextResponse.json(
+        {
+          error: `You've used your ${FREE_LIMIT} free checks for today. Sign in (free) for unlimited checks and progress tracking.`,
+          needLogin: true,
+        },
+        { status: 429 },
+      );
+    }
+  }
+
   try {
     const analysis = await analyzeText(text);
 
     // Logged-in ho to progress save karo. AWAIT zaroori hai — Vercel serverless
     // response ke baad background work suspend kar deta hai, to save miss ho jaata.
-    const session = await getSession();
     let saved = false;
     if (session && dbEnabled) {
       try {
@@ -37,7 +53,12 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ analysis, saved });
+    const freeRemaining = session ? null : Math.max(0, FREE_LIMIT - (freeUsed + 1));
+    const res = NextResponse.json({ analysis, saved, freeRemaining });
+    if (!session) {
+      res.cookies.set(FREE_COOKIE, await makeFreeToken(freeUsed + 1), freeCookieOptions);
+    }
+    return res;
   } catch (err) {
     console.error("[analyze] failed:", err);
     return NextResponse.json(

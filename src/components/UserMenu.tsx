@@ -1,12 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import { useAuth } from "./AuthProvider";
-import LoginModal from "./LoginModal";
 
 export default function UserMenu() {
-  const { user, loading, logout } = useAuth();
-  const [showLogin, setShowLogin] = useState(false);
+  const { user, loading, logout, openLogin } = useAuth();
 
   if (loading) {
     return <div className="h-9 w-20 animate-pulse rounded-full bg-border" />;
@@ -31,13 +28,12 @@ export default function UserMenu() {
         </div>
       ) : (
         <button
-          onClick={() => setShowLogin(true)}
+          onClick={openLogin}
           className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110"
         >
           Sign in
         </button>
       )}
-      {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
     </>
   );
 }

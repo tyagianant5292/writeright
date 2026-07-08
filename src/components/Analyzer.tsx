@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Analysis } from "@/lib/gemini";
+import { useAuth } from "./AuthProvider";
 
 const SAMPLES = [
   "Yesterday I go to market and buyed some vegetables for my mother.",
@@ -16,11 +17,14 @@ function scoreColor(score: number) {
 }
 
 export default function Analyzer() {
+  const { user, openLogin } = useAuth();
   const [text, setText] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [error, setError] = useState("");
   const [result, setResult] = useState<Analysis | null>(null);
   const [copied, setCopied] = useState(false);
+  const [freeRemaining, setFreeRemaining] = useState<number | null>(null);
+  const [limitHit, setLimitHit] = useState(false);
 
   async function analyze() {
     if (text.trim().length < 3) return;
@@ -34,8 +38,16 @@ export default function Analyzer() {
         body: JSON.stringify({ text }),
       });
       const json = await res.json();
+      if (res.status === 429 && json.needLogin) {
+        setLimitHit(true);
+        setError(json.error);
+        setStatus("error");
+        openLogin();
+        return;
+      }
       if (!res.ok) throw new Error(json.error ?? "Something went wrong");
       setResult(json.analysis);
+      if (typeof json.freeRemaining === "number") setFreeRemaining(json.freeRemaining);
       setStatus("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -97,12 +109,32 @@ export default function Analyzer() {
         <span className="ml-3 hidden text-xs text-muted sm:inline">
           or press ⌘/Ctrl + Enter
         </span>
+
+        {!user && freeRemaining !== null && !limitHit && (
+          <p className="mt-3 text-xs text-muted">
+            {freeRemaining > 0
+              ? `${freeRemaining} free check${freeRemaining === 1 ? "" : "s"} left today · `
+              : "That was your last free check today · "}
+            <button onClick={openLogin} className="font-semibold text-brand hover:underline">
+              Sign in
+            </button>{" "}
+            for unlimited + progress tracking.
+          </p>
+        )}
       </div>
 
       {status === "error" && (
-        <p className="mt-4 rounded-xl border border-bad/30 bg-bad/5 px-4 py-3 text-sm text-bad">
-          {error}
-        </p>
+        <div className="mt-4 rounded-xl border border-bad/30 bg-bad/5 px-4 py-3 text-sm text-bad">
+          <p>{error}</p>
+          {limitHit && (
+            <button
+              onClick={openLogin}
+              className="mt-2 rounded-lg bg-brand px-4 py-2 font-semibold text-white transition hover:brightness-110"
+            >
+              Sign in — it&apos;s free
+            </button>
+          )}
+        </div>
       )}
 
       {result && status === "done" && <Results r={result} copied={copied} setCopied={setCopied} />}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useAuth } from "./AuthProvider";
 
 type SpeechResult = {
   transcript: string;
@@ -24,6 +25,7 @@ function color(score: number) {
 }
 
 export default function Speaking() {
+  const { openLogin } = useAuth();
   const [status, setStatus] = useState<"idle" | "recording" | "processing" | "done" | "error">("idle");
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState("");
@@ -83,6 +85,12 @@ export default function Speaking() {
         body: JSON.stringify({ audio: base64, mimeType: blob.type }),
       });
       const json = await res.json();
+      if (res.status === 429 && json.needLogin) {
+        setError(json.error);
+        setStatus("error");
+        openLogin();
+        return;
+      }
       if (!res.ok) throw new Error(json.error ?? "Could not analyze");
       setResult(json.result);
       setStatus("done");
