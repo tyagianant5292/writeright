@@ -24,15 +24,20 @@ export async function POST(req: Request) {
   try {
     const analysis = await analyzeText(text);
 
-    // Logged-in ho to progress save karo (background, non-blocking failure).
+    // Logged-in ho to progress save karo. AWAIT zaroori hai — Vercel serverless
+    // response ke baad background work suspend kar deta hai, to save miss ho jaata.
     const session = await getSession();
+    let saved = false;
     if (session && dbEnabled) {
-      saveProgress(session.userId, analysis.overallScore, analysis.mistakes.map((m) => m.type)).catch(
-        (e) => console.error("[analyze] save progress failed:", e),
-      );
+      try {
+        await saveProgress(session.userId, analysis.overallScore, analysis.mistakes.map((m) => m.type));
+        saved = true;
+      } catch (e) {
+        console.error("[analyze] save progress failed:", e);
+      }
     }
 
-    return NextResponse.json({ analysis, saved: Boolean(session) });
+    return NextResponse.json({ analysis, saved });
   } catch (err) {
     console.error("[analyze] failed:", err);
     return NextResponse.json(
@@ -46,7 +51,9 @@ async function saveProgress(userId: string, score: number, types: string[]) {
   await ensureSchema();
   await sql!`INSERT INTO analyses (user_id, overall_score, mistake_count)
              VALUES (${userId}, ${score}, ${types.length})`;
-  for (const type of types) {
-    await sql!`INSERT INTO mistakes (user_id, type) VALUES (${userId}, ${type})`;
+  if (types.length > 0) {
+    // Ek hi query me saari mistakes insert (UNNEST se).
+    await sql!`INSERT INTO mistakes (user_id, type)
+               SELECT ${userId}, t FROM UNNEST(${types}::text[]) AS t`;
   }
 }
