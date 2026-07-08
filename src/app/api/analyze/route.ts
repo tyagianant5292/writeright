@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { analyzeText, GeminiError } from "@/lib/gemini";
+import { analyzeText, TextAIError } from "@/lib/textai";
 import { getSession } from "@/lib/auth";
 import { sql, ensureSchema, dbEnabled } from "@/lib/db";
 import { getFreeCount, makeFreeToken, freeCookieOptions, FREE_COOKIE, FREE_LIMIT, resetInfo } from "@/lib/freelimit";
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     return res;
   } catch (err) {
     console.error("[analyze] failed:", err);
-    if (err instanceof GeminiError && err.rateLimited) {
+    if (err instanceof TextAIError && err.rateLimited) {
       return NextResponse.json(
         { error: "The AI is at its free-tier rate limit right now. Please wait about a minute and try again." },
         { status: 503 },

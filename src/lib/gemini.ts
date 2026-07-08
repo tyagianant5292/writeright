@@ -36,84 +36,6 @@ export type Analysis = {
   improved: string;
 };
 
-const responseSchema = {
-  type: "object",
-  properties: {
-    overallScore: { type: "integer" },
-    level: { type: "string" },
-    summary: { type: "string" },
-    categories: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          key: { type: "string" },
-          name: { type: "string" },
-          score: { type: "integer" },
-          note: { type: "string" },
-        },
-        required: ["key", "name", "score", "note"],
-      },
-    },
-    mistakes: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          original: { type: "string" },
-          correction: { type: "string" },
-          type: { type: "string" },
-          explanation: { type: "string" },
-        },
-        required: ["original", "correction", "type", "explanation"],
-      },
-    },
-    pronunciationTips: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          word: { type: "string" },
-          phonetic: { type: "string" },
-          tip: { type: "string" },
-        },
-        required: ["word", "phonetic", "tip"],
-      },
-    },
-    improved: { type: "string" },
-  },
-  required: [
-    "overallScore",
-    "level",
-    "summary",
-    "categories",
-    "mistakes",
-    "pronunciationTips",
-    "improved",
-  ],
-};
-
-const SYSTEM = `You are an expert, encouraging English writing coach for Hindi-speaking learners in India.
-Analyze the user's English text and return a structured evaluation.
-
-Rules:
-- overallScore: 0-100 integer for overall English quality of the text.
-- level: one of "Beginner", "Elementary", "Intermediate", "Upper-Intermediate", "Advanced" (estimate from the text).
-- summary: 1-2 warm sentences of overall feedback. You may add a short Hindi phrase for encouragement.
-- categories: score these FIVE keys, each 0-100 with a short 'note' (max 12 words):
-    grammar (name "Grammar"),
-    vocabulary (name "Vocabulary"),
-    sentence_structure (name "Sentence Structure"),
-    spelling_punctuation (name "Spelling & Punctuation"),
-    pronunciation (name "Pronunciation").
-  For pronunciation, judge how tricky-to-pronounce the chosen words are and whether spellings hint at wrong pronunciation.
-- mistakes: every concrete error. Each has: original (the wrong phrase), correction (the fixed phrase),
-  type (short label like "Verb Tense", "Article", "Preposition", "Spelling"),
-  explanation (1 short sentence with the rule; you may add a tiny Hindi hint in brackets).
-- pronunciationTips: 0-4 words from the text that are commonly mispronounced. Each: word, phonetic (simple respelling like "KER-nul"), tip (how to say it).
-- improved: a corrected, natural version of the WHOLE text, keeping the user's meaning and tone.
-If the text is already perfect, return empty mistakes and high scores. Never invent errors that aren't there.`;
-
 export class GeminiError extends Error {
   status: number;
   rateLimited: boolean;
@@ -161,15 +83,6 @@ async function callGemini(body: object): Promise<string> {
   }
 
   throw new GeminiError(`Gemini error ${lastStatus}: ${lastDetail.slice(0, 200)}`, lastStatus);
-}
-
-export async function analyzeText(text: string): Promise<Analysis> {
-  const raw = await callGemini({
-    systemInstruction: { parts: [{ text: SYSTEM }] },
-    contents: [{ parts: [{ text: `Analyze this text:\n\n"""${text}"""` }] }],
-    generationConfig: { temperature: 0.3, responseMimeType: "application/json", responseSchema },
-  });
-  return JSON.parse(raw) as Analysis;
 }
 
 // ── Speaking / pronunciation analysis (audio in) ──────────────
