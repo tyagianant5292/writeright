@@ -5,6 +5,10 @@ import Progress from "@/components/Progress";
 import { AuthProvider } from "@/components/AuthProvider";
 import UserMenu from "@/components/UserMenu";
 
+// Har request pe fresh render — taaki "Word of the day" aaj ke date ke hisaab se
+// dikhe (warna build-time pe freeze ho jata tha). Email cron ke saath match karega.
+export const dynamic = "force-dynamic";
+
 export default function Home() {
   return (
     <AuthProvider>
